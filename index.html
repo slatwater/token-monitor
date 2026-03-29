@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Token Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #fff;
+    --border: #e5e7eb;
+    --text: #1a1a1a;
+    --text2: #6b7280;
+    --accent: #d4622b;
+    --accent2: #2563eb;
+    --accent3: #059669;
+    --accent4: #7c3aed;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    background: var(--bg); color: var(--text);
+    line-height: 1.5; padding: 32px; max-width: 1400px; margin: 0 auto;
+  }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+  h2 { font-size: 14px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+  .header-right { display: flex; gap: 12px; align-items: center; }
+  .header-right select, .header-right button {
+    font-size: 13px; padding: 6px 12px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--surface); cursor: pointer;
+  }
+  .header-right button:hover { background: #f3f4f6; }
+  .live-dot { width: 8px; height: 8px; background: var(--accent3); border-radius: 50%; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* 总览卡片 */
+  .overview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px;
+  }
+  .card-label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; }
+  .card-value { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; margin-top: 4px; }
+  .card-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+
+  /* 图表区 */
+  .charts { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 32px; }
+  .chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  .chart-box canvas { width: 100% !important; }
+
+  /* 项目表格 */
+  .table-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 12px 16px; font-size: 11px; font-weight: 600; color: var(--text2);
+       text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); background: #f9fafb; }
+  td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f9fafb; }
+  .project-name { font-weight: 600; }
+  .model-tag {
+    display: inline-block; font-size: 11px; padding: 2px 6px; border-radius: 4px;
+    background: #f3f4f6; color: var(--text2); margin-right: 4px;
+  }
+  .model-tag.opus { background: #fef3c7; color: #92400e; }
+  .model-tag.sonnet { background: #dbeafe; color: #1e40af; }
+  .model-tag.haiku { background: #d1fae5; color: #065f46; }
+  .token-bar {
+    height: 6px; border-radius: 3px; background: #e5e7eb; position: relative; min-width: 80px;
+  }
+  .token-bar-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* 详情面板 */
+  .detail-panel {
+    display: none; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px; margin-bottom: 32px;
+  }
+  .detail-panel.active { display: block; }
+  .detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .detail-close { cursor: pointer; font-size: 18px; color: var(--text2); border: none; background: none; }
+  .session-list { max-height: 400px; overflow-y: auto; }
+  .session-item {
+    display: grid; grid-template-columns: 1fr 100px 100px 100px 80px;
+    gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; align-items: center;
+  }
+  .session-item:last-child { border-bottom: none; }
+  .session-time { color: var(--text2); font-size: 12px; }
+
+  @media (max-width: 900px) {
+    .overview { grid-template-columns: repeat(2, 1fr); }
+    .charts { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Claude Token Monitor</h1>
+  <div class="header-right">
+    <div class="live-dot" title="自动刷新中"></div>
+    <select id="daysSelect" onchange="loadAll()">
+      <option value="7">近 7 天</option>
+      <option value="14">近 14 天</option>
+      <option value="30" selected>近 30 天</option>
+      <option value="90">近 90 天</option>
+    </select>
+    <button onclick="loadAll()">刷新</button>
+  </div>
+</div>
+
+<div class="overview" id="overview"></div>
+
+<div class="charts">
+  <div class="chart-box">
+    <h2>每日 Token 趋势</h2>
+    <canvas id="dailyChart" height="200"></canvas>
+  </div>
+  <div class="chart-box">
+    <h2>模型占比</h2>
+    <canvas id="modelChart" height="200"></canvas>
+  </div>
+</div>
+
+<div class="detail-panel" id="detailPanel">
+  <div class="detail-header">
+    <h2 id="detailTitle">项目详情</h2>
+    <button class="detail-close" onclick="closeDetail()">&times;</button>
+  </div>
+  <div class="session-list" id="sessionList"></div>
+</div>
+
+<div class="table-box">
+  <h2 style="padding: 16px 16px 0;">项目 Token 消耗排行</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>项目</th>
+        <th>模型</th>
+        <th>会话</th>
+        <th>输入</th>
+        <th>输出</th>
+        <th>缓存读取</th>
+        <th>总量</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="projectsTable"></tbody>
+  </table>
+</div>
+
+<script>
+const API = '';
+let dailyChart = null, modelChart = null;
+
+function fmt(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function modelTag(name) {
+  const short = name.replace('claude-', '').replace('-20251001', '');
+  let cls = '';
+  if (name.includes('opus')) cls = 'opus';
+  else if (name.includes('sonnet')) cls = 'sonnet';
+  else if (name.includes('haiku')) cls = 'haiku';
+  return `<span class="model-tag ${cls}">${short}</span>`;
+}
+
+function getDays() {
+  return document.getElementById('daysSelect').value;
+}
+
+async function loadOverview() {
+  const data = await fetch(`${API}/api/overview`).then(r => r.json());
+  const mu = data.model_usage || {};
+
+  let totalInput = 0, totalOutput = 0, totalCache = 0;
+  for (const m of Object.values(mu)) {
+    totalInput += m.inputTokens || 0;
+    totalOutput += m.outputTokens || 0;
+    totalCache += (m.cacheReadInputTokens || 0) + (m.cacheCreationInputTokens || 0);
+  }
+
+  document.getElementById('overview').innerHTML = `
+    <div class="card">
+      <div class="card-label">总 Token 消耗</div>
+      <div class="card-value">${fmt(totalInput + totalOutput + totalCache)}</div>
+      <div class="card-sub">输入 ${fmt(totalInput)} / 输出 ${fmt(totalOutput)}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">缓存 Token</div>
+      <div class="card-value">${fmt(totalCache)}</div>
+      <div class="card-sub">节省大量重复输入</div>
+    </div>
+    <div class="card">
+      <div class="card-label">总会话数</div>
+      <div class="card-value">${data.total_sessions.toLocaleString()}</div>
+      <div class="card-sub">消息 ${data.total_messages.toLocaleString()}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">使用模型</div>
+      <div class="card-value">${Object.keys(mu).length}</div>
+      <div class="card-sub">${Object.keys(mu).map(m => m.replace('claude-','').split('-')[0]).join(' / ')}</div>
+    </div>
+  `;
+}
+
+async function loadDaily() {
+  const data = await fetch(`${API}/api/daily?days=${getDays()}`).then(r => r.json());
+
+  const labels = data.map(d => d.date.slice(5)); // MM-DD
+  // 收集所有模型
+  const allModels = new Set();
+  data.forEach(d => Object.keys(d.tokens_by_model).forEach(m => allModels.add(m)));
+
+  const modelColors = {
+    'claude-opus-4-6': '#d4622b',
+    'claude-sonnet-4-6': '#2563eb',
+    'claude-haiku-4-5-20251001': '#059669',
+    'kimi-for-coding': '#7c3aed',
+  };
+
+  const datasets = [...allModels].map(model => ({
+    label: model.replace('claude-', '').replace('-20251001', ''),
+    data: data.map(d => d.tokens_by_model[model] || 0),
+    backgroundColor: modelColors[model] || '#9ca3af',
+    borderRadius: 3,
+  }));
+
+  if (dailyChart) dailyChart.destroy();
+  dailyChart = new Chart(document.getElementById('dailyChart'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      scales: {
+        x: { stacked: true, grid: { display: false } },
+        y: { stacked: true, ticks: { callback: v => fmt(v) }, grid: { color: '#f3f4f6' } },
+      },
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)}` } },
+      },
+    },
+  });
+}
+
+async function loadModelChart() {
+  const data = await fetch(`${API}/api/overview`).then(r => r.json());
+  const mu = data.model_usage || {};
+
+  const labels = [];
+  const values = [];
+  const colors = [];
+  const colorMap = {
+    'claude-opus-4-6': '#d4622b',
+    'claude-sonnet-4-6': '#2563eb',
+    'claude-haiku-4-5-20251001': '#059669',
+    'kimi-for-coding': '#7c3aed',
+  };
+
+  for (const [model, usage] of Object.entries(mu)) {
+    const total = (usage.inputTokens || 0) + (usage.outputTokens || 0);
+    if (total === 0) continue;
+    labels.push(model.replace('claude-', '').replace('-20251001', ''));
+    values.push(total);
+    colors.push(colorMap[model] || '#9ca3af');
+  }
+
+  if (modelChart) modelChart.destroy();
+  modelChart = new Chart(document.getElementById('modelChart'), {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }],
+    },
+    options: {
+      responsive: true,
+      cutout: '60%',
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)}` } },
+      },
+    },
+  });
+}
+
+async function loadProjects() {
+  const data = await fetch(`${API}/api/projects?days=${getDays()}`).then(r => r.json());
+  const maxTokens = data.length ? data[0].total_tokens : 1;
+
+  const tbody = document.getElementById('projectsTable');
+  tbody.innerHTML = data.map(p => `
+    <tr onclick="showDetail('${p.dir_name}', '${p.name}')" style="cursor:pointer">
+      <td class="project-name">${p.name}</td>
+      <td>${p.models.map(m => modelTag(m)).join('')}</td>
+      <td class="num">${p.session_count}${p.subagent_count ? ` <span style="color:var(--text2)">+${p.subagent_count}</span>` : ''}</td>
+      <td class="num">${fmt(p.total_input)}</td>
+      <td class="num">${fmt(p.total_output)}</td>
+      <td class="num">${fmt(p.total_cache_read)}</td>
+      <td class="num" style="font-weight:600">${fmt(p.total_tokens)}</td>
+      <td>
+        <div class="token-bar">
+          <div class="token-bar-fill" style="width:${(p.total_tokens / maxTokens * 100).toFixed(1)}%"></div>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function showDetail(dirName, projectName) {
+  const panel = document.getElementById('detailPanel');
+  const list = document.getElementById('sessionList');
+  document.getElementById('detailTitle').textContent = `${projectName} — 会话详情`;
+  panel.classList.add('active');
+
+  const data = await fetch(`${API}/api/sessions?project=${encodeURIComponent(dirName)}&days=${getDays()}`).then(r => r.json());
+
+  list.innerHTML = `
+    <div class="session-item" style="font-weight:600; color:var(--text2);">
+      <div>时间</div><div>输入</div><div>输出</div><div>缓存</div><div>消息数</div>
+    </div>
+  ` + data.map(s => {
+    const time = s.first_ts ? new Date(s.first_ts).toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }) : '-';
+    const cache = s.total_cache_read + s.total_cache_creation;
+    return `
+      <div class="session-item">
+        <div>
+          <div>${time}</div>
+          <div style="font-size:11px;color:var(--text2)">${s.models.map(m => m.replace('claude-','').replace('-20251001','')).join(', ')}${s.is_subagent ? ' (subagent)' : ''}</div>
+        </div>
+        <div class="num">${fmt(s.total_input)}</div>
+        <div class="num">${fmt(s.total_output)}</div>
+        <div class="num">${fmt(cache)}</div>
+        <div class="num">${s.messages}</div>
+      </div>
+    `;
+  }).join('');
+
+  panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+function closeDetail() {
+  document.getElementById('detailPanel').classList.remove('active');
+}
+
+function loadAll() {
+  loadOverview();
+  loadDaily();
+  loadModelChart();
+  loadProjects();
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
