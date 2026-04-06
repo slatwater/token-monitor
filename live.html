@@ -3,316 +3,180 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Claude Token Monitor — 粒子宇宙</title>
+<title>Claude Token Monitor — Hack Progress</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0a0a12; color: #e0e0e0; font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif; overflow: hidden; }
-  canvas { display: block; position: fixed; top: 0; left: 0; z-index: 0; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a0a; color: #00ff41;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Courier New", monospace;
+  min-height: 100vh; overflow-x: hidden;
+}
 
-  /* 顶部状态栏 */
-  .topbar {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 12px 24px;
-    background: linear-gradient(180deg, rgba(10,10,18,0.9) 0%, transparent 100%);
-  }
-  .topbar-left { display: flex; align-items: center; gap: 10px; }
-  .topbar h1 { font-size: 14px; font-weight: 500; color: #888; letter-spacing: 0.08em; text-transform: uppercase; }
-  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; animation: pulse 2s infinite; }
-  @keyframes pulse { 0%,100% { opacity:1; box-shadow: 0 0 6px #4ade80; } 50% { opacity:.4; box-shadow: none; } }
-  .back-link { font-size: 12px; color: #555; text-decoration: none; }
-  .back-link:hover { color: #999; }
+/* CRT 扫描线 */
+body::after {
+  content: ''; position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,0.06) 0px, rgba(0,0,0,0.06) 1px, transparent 1px, transparent 3px);
+}
 
-  /* 详情面板 */
-  .detail-overlay {
-    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 20; background: rgba(10,10,18,0.85); backdrop-filter: blur(12px);
-  }
-  .detail-overlay.active { display: flex; justify-content: center; align-items: flex-start; padding-top: 60px; }
-  .detail-box {
-    background: rgba(20,20,32,0.95); border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 14px; width: 90%; max-width: 720px; max-height: 80vh; overflow-y: auto;
-    padding: 24px;
-  }
-  .detail-close {
-    float: right; background: none; border: none; color: #666; font-size: 22px;
-    cursor: pointer; line-height: 1;
-  }
-  .detail-close:hover { color: #fff; }
-  .detail-name { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
-  .detail-stats {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
-  }
-  .ds { text-align: center; }
-  .ds-label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 0.06em; }
-  .ds-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .detail-feed { max-height: 400px; overflow-y: auto; }
-  .df-row {
-    display: grid; grid-template-columns: 80px 90px 65px 65px 65px 1fr;
-    gap: 2px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
-    font-size: 12px; font-variant-numeric: tabular-nums;
-  }
-  .df-time { color: #666; }
-  .model-tag {
-    display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px;
-  }
-  .model-tag.opus { background: rgba(251,191,36,0.15); color: #fbbf24; }
-  .model-tag.sonnet { background: rgba(96,165,250,0.15); color: #60a5fa; }
-  .model-tag.haiku { background: rgba(52,211,153,0.15); color: #34d399; }
-  .v-in { color: #60a5fa; }
-  .v-out { color: #fb923c; }
-  .v-cache { color: #4ade80; }
+/* ─── 全局状态栏 ─────────────────────────────────────────────── */
+.global-bar {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 20px;
+  background: #0d0d0d; border-bottom: 1px solid #1a1a1a;
+}
+.logo { font-size: 11px; letter-spacing: 0.2em; color: #00ff41; text-shadow: 0 0 8px rgba(0,255,65,0.4); }
+.logo .ver { color: #004400; }
+.blink { animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.global-stats { display: flex; gap: 24px; font-size: 11px; }
+.gs-item { color: #004400; }
+.gs-item span { color: #00ff41; font-weight: 700; }
 
-  /* 提示文字 */
-  .hint {
-    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-    font-size: 11px; color: #333; z-index: 10; letter-spacing: 0.05em;
-  }
+/* ─── 面板容器 ───────────────────────────────────────────────── */
+.targets { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 16px; padding: 16px; }
+
+/* ─── 目标主机面板 ───────────────────────────────────────────── */
+.panel {
+  background: #0d0d0d; border: 1px solid #1a2a1a; border-radius: 3px;
+  overflow: hidden; transition: opacity 1.5s, border-color 0.3s;
+}
+.panel.flash-green { animation: flashGreen 1.2s ease-out; }
+@keyframes flashGreen { 0% { border-color: #00ff41; box-shadow: 0 0 20px rgba(0,255,65,0.4); } 100% { border-color: #1a2a1a; box-shadow: none; } }
+.panel.flash-red { animation: flashRed 1.5s ease-out; }
+@keyframes flashRed { 0% { border-color: #ff0040; box-shadow: 0 0 30px rgba(255,0,64,0.6); } 100% { border-color: #1a2a1a; box-shadow: none; } }
+
+/* 面板头 */
+.panel-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: #111; border-bottom: 1px solid #1a1a1a;
+}
+.window-dots { display: flex; gap: 5px; }
+.window-dots i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot-r { background: #ff5f57; }
+.dot-y { background: #ffbd2e; }
+.dot-g { background: #28c840; }
+.target-label { flex: 1; font-size: 11px; color: #888; letter-spacing: 0.05em; }
+.target-label b { color: #00ff41; font-weight: 700; }
+.target-ip { font-size: 10px; color: #333; }
+.status-badge {
+  font-size: 9px; padding: 2px 8px; border-radius: 2px; letter-spacing: 0.1em; font-weight: 700;
+  border: 1px solid currentColor;
+}
+.status-connected { color: #00ff41; }
+.status-scanning { color: #ffaa00; }
+.status-breached { color: #ff0040; }
+.panel-uptime { font-size: 10px; color: #333; font-variant-numeric: tabular-nums; }
+
+/* 面板体 */
+.panel-body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+/* 扫描进度条 */
+.scan-section { font-size: 10px; }
+.scan-label { color: #004400; letter-spacing: 0.1em; margin-bottom: 4px; }
+.scan-bar-wrap {
+  background: #0a0a0a; border: 1px solid #1a2a1a; padding: 3px 6px;
+  font-size: 12px; letter-spacing: 1px; display: flex; align-items: center; gap: 8px;
+}
+.scan-bar-text { color: #00ff41; white-space: pre; }
+.scan-pct { color: #00ff41; font-weight: 700; min-width: 36px; text-align: right; }
+.scan-detail { font-size: 10px; color: #333; margin-top: 3px; }
+
+/* 权限等级 */
+.access-section { font-size: 10px; display: flex; align-items: center; gap: 10px; }
+.access-label { color: #004400; letter-spacing: 0.1em; }
+.access-bar { letter-spacing: 1px; font-size: 12px; }
+.access-level-text { font-weight: 700; margin-left: 6px; }
+.level-user { color: #004400; }
+.level-root { color: #ffaa00; text-shadow: 0 0 4px rgba(255,170,0,0.3); }
+.level-kernel { color: #ff0040; text-shadow: 0 0 6px rgba(255,0,64,0.4); }
+
+/* 数据面板 */
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.metric { background: #080808; border: 1px solid #151515; padding: 6px 8px; border-radius: 2px; }
+.metric-label { font-size: 8px; color: #333; letter-spacing: 0.1em; text-transform: uppercase; }
+.metric-value { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.mv-msgs { color: #ffaa00; }
+.mv-exfil { color: #00ff41; text-shadow: 0 0 4px rgba(0,255,65,0.3); }
+.mv-payload { color: #00ccff; }
+.mv-cache { color: #005500; }
+
+/* 事件流 */
+.feed-section { border-top: 1px solid #151515; padding-top: 8px; }
+.feed-label { font-size: 9px; color: #333; letter-spacing: 0.1em; margin-bottom: 4px; }
+.feed { max-height: 200px; overflow-y: auto; overflow-x: hidden; }
+.feed-line {
+  font-size: 10px; line-height: 1.7; color: #2a4a2a; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; transition: color 2s;
+}
+.feed-line.recent { color: #00ff41; text-shadow: 0 0 4px rgba(0,255,65,0.3); }
+.feed-line .f-time { color: #333; }
+.feed-line .f-port { color: #008800; }
+.feed-line .f-status { color: #00ff41; }
+.feed-line .f-in { color: #00ccff; }
+.feed-line .f-out { color: #00ff41; }
+.feed-line .f-cache { color: #004400; }
+
+/* 异常数据行 */
+.feed-line.alert-line { color: #ff0040; text-shadow: 0 0 6px rgba(255,0,64,0.4); background: rgba(255,0,64,0.06); }
+.feed-line .f-surge { color: #ff0040; font-weight: 700; }
+
+/* 断连覆盖 */
+.disconnect-overlay {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(10,10,10,0.85); font-size: 12px; color: #ff0040; letter-spacing: 0.15em;
+  animation: fadeIn 0.5s;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* 空状态 */
+.empty-state {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center; color: #1a3a1a;
+}
+.empty-state .line { font-size: 12px; line-height: 2.2; letter-spacing: 0.1em; }
+.empty-state .prompt { color: #004400; }
+
+/* 全局警告 */
+.alert-toast {
+  position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 200;
+  background: rgba(255,0,64,0.1); border: 1px solid #ff0040; color: #ff0040;
+  font-size: 11px; padding: 6px 20px; letter-spacing: 0.05em;
+  animation: alertFade 4s ease-out forwards; white-space: nowrap;
+}
+@keyframes alertFade { 0%,60% { opacity:1; } 100% { opacity:0; pointer-events:none; } }
+
+/* 连接动画 */
+.connect-log { padding: 12px; font-size: 11px; line-height: 1.8; }
+.connect-log .cl { opacity: 0; animation: typeIn 0.3s forwards; }
+.cl-ok { color: #00ff41; }
+.cl-info { color: #004400; }
+@keyframes typeIn { to { opacity: 1; } }
 </style>
 </head>
 <body>
 
-<canvas id="canvas"></canvas>
-
-<div class="topbar">
-  <div class="topbar-left">
-    <div class="live-dot"></div>
-    <h1>Token Universe</h1>
-  </div>
-  <a href="/" class="back-link">← 总览</a>
-</div>
-
-<div class="detail-overlay" id="detailOverlay" onclick="if(event.target===this)closeDetail()">
-  <div class="detail-box">
-    <button class="detail-close" onclick="closeDetail()">&times;</button>
-    <div class="detail-name" id="detailName"></div>
-    <div class="detail-stats" id="detailStats"></div>
-    <div class="detail-feed" id="detailFeed"></div>
+<div class="global-bar">
+  <div class="logo">HACK PROGRESS <span class="ver">v2.0</span><span class="blink">_</span></div>
+  <div class="global-stats">
+    <div class="gs-item">ACTIVE TARGETS: <span id="gTargets">0</span></div>
+    <div class="gs-item">TOTAL EXFIL: <span id="gExfil">0</span></div>
+    <div class="gs-item">UPTIME: <span id="gUptime">00:00:00</span></div>
   </div>
 </div>
 
-<div class="hint">点击星云查看详情</div>
+<div class="targets" id="targets"></div>
+<div class="empty-state" id="emptyState" style="display:none">
+  <div class="line prompt">&gt; SCANNING NETWORK...<span class="blink">_</span></div>
+  <div class="line">0 TARGETS FOUND</div>
+  <div class="line">WAITING FOR ACTIVITY...</div>
+</div>
 
 <script>
-// ─── 配置 ─────────────────────────────────────────────────────────────
-const COLORS = [
-  { core: '#00e5ff', glow: 'rgba(0,229,255,', name: 'cyan' },
-  { core: '#ff9100', glow: 'rgba(255,145,0,', name: 'orange' },
-  { core: '#e040fb', glow: 'rgba(224,64,251,', name: 'purple' },
-  { core: '#76ff03', glow: 'rgba(118,255,3,', name: 'lime' },
-  { core: '#ff1744', glow: 'rgba(255,23,68,', name: 'red' },
-];
-
-// ─── Canvas ───────────────────────────────────────────────────────────
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-let W, H;
-
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-}
-resize();
-window.addEventListener('resize', resize);
-
-// ─── 背景星星 ─────────────────────────────────────────────────────────
-const stars = [];
-for (let i = 0; i < 200; i++) {
-  stars.push({
-    x: Math.random() * 3000 - 500,
-    y: Math.random() * 2000 - 300,
-    r: Math.random() * 1.2 + 0.2,
-    a: Math.random() * 0.5 + 0.2,
-    twinkleSpeed: Math.random() * 0.02 + 0.005,
-    twinkleOffset: Math.random() * Math.PI * 2,
-  });
-}
-
-function drawStars(t) {
-  for (const s of stars) {
-    const a = s.a * (0.6 + 0.4 * Math.sin(t * s.twinkleSpeed + s.twinkleOffset));
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(200,210,255,${a})`;
-    ctx.fill();
-  }
-}
-
-// ─── 粒子系统 ─────────────────────────────────────────────────────────
-class Particle {
-  constructor(cx, cy, color, isBurst) {
-    this.cx = cx;
-    this.cy = cy;
-    const angle = Math.random() * Math.PI * 2;
-    const dist = isBurst ? Math.random() * 8 + 2 : Math.random() * 60 + 10;
-    this.x = cx + Math.cos(angle) * dist;
-    this.y = cy + Math.sin(angle) * dist;
-    this.vx = (Math.random() - 0.5) * (isBurst ? 3 : 0.15);
-    this.vy = (Math.random() - 0.5) * (isBurst ? 3 : 0.15);
-    this.life = isBurst ? 1.0 : 0.6 + Math.random() * 0.4;
-    this.decay = isBurst ? 0.008 + Math.random() * 0.01 : 0.0005 + Math.random() * 0.001;
-    this.r = isBurst ? Math.random() * 3 + 1.5 : Math.random() * 2 + 0.5;
-    this.color = color;
-    this.orbitAngle = angle;
-    this.orbitSpeed = (Math.random() - 0.5) * 0.008;
-    this.orbitDist = dist;
-    this.isBurst = isBurst;
-  }
-
-  update() {
-    if (this.isBurst) {
-      this.x += this.vx;
-      this.y += this.vy;
-      this.vx *= 0.98;
-      this.vy *= 0.98;
-    } else {
-      this.orbitAngle += this.orbitSpeed;
-      const targetX = this.cx + Math.cos(this.orbitAngle) * this.orbitDist;
-      const targetY = this.cy + Math.sin(this.orbitAngle) * this.orbitDist;
-      this.x += (targetX - this.x) * 0.02;
-      this.y += (targetY - this.y) * 0.02;
-    }
-    this.life -= this.decay;
-  }
-
-  draw() {
-    if (this.life <= 0) return;
-    const a = Math.min(this.life, 1);
-    // glow
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r * 3, 0, Math.PI * 2);
-    ctx.fillStyle = this.color.glow + (a * 0.15) + ')';
-    ctx.fill();
-    // core
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-    ctx.fillStyle = this.color.glow + a + ')';
-    ctx.fill();
-  }
-}
-
-// ─── 星云（项目） ─────────────────────────────────────────────────────
-class Nebula {
-  constructor(name, color, cx, cy) {
-    this.name = name;
-    this.color = color;
-    this.cx = cx;
-    this.cy = cy;
-    this.particles = [];
-    this.summary = { total_input: 0, total_output: 0, total_cache_read: 0, total_cache_creation: 0, message_count: 0 };
-    this.events = [];
-    this.baseRadius = 30;
-    this.targetRadius = 30;
-    this.currentRadius = 30;
-    this.pulsePhase = Math.random() * Math.PI * 2;
-    // 初始粒子
-    for (let i = 0; i < 20; i++) {
-      this.particles.push(new Particle(cx, cy, color, false));
-    }
-  }
-
-  get totalTokens() {
-    return this.summary.total_input + this.summary.total_output;
-  }
-
-  burst(count) {
-    const n = Math.min(count * 8, 60);
-    for (let i = 0; i < n; i++) {
-      this.particles.push(new Particle(this.cx, this.cy, this.color, true));
-    }
-    // 也补充轨道粒子
-    for (let i = 0; i < Math.min(count * 2, 15); i++) {
-      this.particles.push(new Particle(this.cx, this.cy, this.color, false));
-    }
-  }
-
-  updateRadius() {
-    // 根据 token 量调整半径
-    const t = this.totalTokens;
-    if (t > 0) {
-      this.targetRadius = Math.min(35 + Math.log10(t) * 12, 120);
-    }
-    this.currentRadius += (this.targetRadius - this.currentRadius) * 0.03;
-    // 更新轨道粒子的范围
-    for (const p of this.particles) {
-      if (!p.isBurst && p.orbitDist > this.currentRadius * 1.5) {
-        p.orbitDist = Math.random() * this.currentRadius + 10;
-      }
-    }
-  }
-
-  update(t) {
-    this.updateRadius();
-    this.pulsePhase += 0.02;
-    // 更新粒子
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      this.particles[i].update();
-      if (this.particles[i].life <= 0) {
-        if (!this.particles[i].isBurst) {
-          // 轨道粒子重生
-          this.particles[i] = new Particle(this.cx, this.cy, this.color, false);
-        } else {
-          this.particles.splice(i, 1);
-        }
-      }
-    }
-    // 限制粒子数
-    if (this.particles.length > 300) {
-      this.particles.splice(0, this.particles.length - 300);
-    }
-  }
-
-  draw(t) {
-    const pulse = 1 + 0.05 * Math.sin(this.pulsePhase);
-    const r = this.currentRadius * pulse;
-
-    // 外层辉光
-    const grad = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, r * 2);
-    grad.addColorStop(0, this.color.glow + '0.06)');
-    grad.addColorStop(0.5, this.color.glow + '0.02)');
-    grad.addColorStop(1, 'transparent');
-    ctx.beginPath();
-    ctx.arc(this.cx, this.cy, r * 2, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // 核心辉光
-    const coreGrad = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, r * 0.6);
-    coreGrad.addColorStop(0, this.color.glow + '0.12)');
-    coreGrad.addColorStop(1, 'transparent');
-    ctx.beginPath();
-    ctx.arc(this.cx, this.cy, r * 0.6, 0, Math.PI * 2);
-    ctx.fillStyle = coreGrad;
-    ctx.fill();
-
-    // 粒子
-    for (const p of this.particles) {
-      p.draw();
-    }
-
-    // 项目名
-    ctx.fillStyle = this.color.glow + '0.9)';
-    ctx.font = '600 14px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(this.name, this.cx, this.cy - r - 16);
-
-    // token 数字
-    ctx.fillStyle = this.color.glow + '0.5)';
-    ctx.font = '11px -apple-system, sans-serif';
-    ctx.fillText(fmt(this.totalTokens), this.cx, this.cy - r - 4);
-
-    // 消息数
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.fillText(this.summary.message_count + ' msgs', this.cx, this.cy + r + 20);
-  }
-
-  hitTest(mx, my) {
-    const dx = mx - this.cx;
-    const dy = my - this.cy;
-    return Math.sqrt(dx * dx + dy * dy) < this.currentRadius * 2;
-  }
-}
+// ─── 状态 ─────────────────────────────────────────────────────────────
+const state = { projects: {} };
+const startTime = Date.now();
+let panelCounter = 0;
 
 // ─── 工具函数 ─────────────────────────────────────────────────────────
 function fmt(n) {
@@ -322,190 +186,366 @@ function fmt(n) {
   return String(n);
 }
 
-function modelTag(name) {
-  const short = name.replace('claude-', '').replace('-20251001', '');
-  let cls = '';
-  if (name.includes('opus')) cls = 'opus';
-  else if (name.includes('sonnet')) cls = 'sonnet';
-  else if (name.includes('haiku')) cls = 'haiku';
-  return `<span class="model-tag ${cls}">${short}</span>`;
+function hashCode(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return h;
 }
 
-function timeStr(ts) {
-  if (!ts) return '-';
-  return new Date(ts).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+function fakeIP(sessionId) {
+  if (!sessionId) return '0.0.0.0';
+  const h = Math.abs(hashCode(sessionId));
+  return `${10 + (h & 0xFF) % 246}.${(h >> 8) & 0xFF}.${(h >> 16) & 0xFF}.${(h >> 24) & 0xFF}`;
 }
 
-// ─── 状态 ─────────────────────────────────────────────────────────────
-const nebulae = [];
-let hoveredNebula = null;
+function shortModel(m) {
+  return m.replace('claude-', '').replace('-20251001', '').replace('-4-6', '4.6').replace('-4-5', '4.5');
+}
 
-// ─── 数据 ─────────────────────────────────────────────────────────────
-async function initData() {
+function fmtDuration(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+
+function safeId(name) { return 'p_' + name.replace(/[^a-zA-Z0-9]/g, '_'); }
+
+function getStatus(summary) {
+  const t = summary.total_output;
+  if (t > 500000) return { text: 'BREACHED', cls: 'status-breached' };
+  if (t > 50000) return { text: 'SCANNING', cls: 'status-scanning' };
+  return { text: 'CONNECTED', cls: 'status-connected' };
+}
+
+function getModelInfo(events) {
+  let best = 0, bestName = 'none';
+  for (const e of events) {
+    if (e.model.includes('opus') && best < 3) { best = 3; bestName = shortModel(e.model); }
+    else if (e.model.includes('sonnet') && best < 2) { best = 2; bestName = shortModel(e.model); }
+    else if (e.model.includes('haiku') && best < 1) { best = 1; bestName = shortModel(e.model); }
+  }
+  if (best >= 3) return { bar: '█████', text: bestName, cls: 'level-kernel' };
+  if (best >= 2) return { bar: '███░░', text: bestName, cls: 'level-root' };
+  if (best >= 1) return { bar: '█░░░░', text: bestName, cls: 'level-user' };
+  return { bar: '░░░░░', text: 'none', cls: 'level-user' };
+}
+
+function calcRate(events) {
+  if (events.length < 2) return 0;
+  const recent = events.slice(-20);
+  const first = new Date(recent[0].timestamp).getTime();
+  const last = new Date(recent[recent.length - 1].timestamp).getTime();
+  const minutes = (last - first) / 60000;
+  if (minutes < 0.1) return 0;
+  const totalOut = recent.reduce((s, e) => s + e.output_tokens, 0);
+  return Math.round(totalOut / minutes);
+}
+
+function rateBar(rate, w) {
+  w = w || 30;
+  // 0-50K tok/min 映射到满格
+  const pct = Math.min(1, rate / 50000);
+  const filled = Math.round(pct * w);
+  return '\u2588'.repeat(filled) + '\u2591'.repeat(w - filled);
+}
+
+function fakePort(sessionId) {
+  return 443 + Math.abs(hashCode(sessionId || '')) % 9000;
+}
+
+function formatEvent(e) {
+  const t = e.timestamp ? new Date(e.timestamp).toLocaleTimeString('en-US', { hour12: false }) : '--:--:--';
+  const port = fakePort(e.session_id);
+  const model = shortModel(e.model);
+  const cache = e.cache_read + e.cache_creation;
+  return `<span class="f-time">[${t}]</span> <span class="f-port">PORT ${port}/${model}</span> <span class="f-status">OPEN</span> — <span class="f-in">in:${fmt(e.input_tokens)}</span> <span class="f-out">out:${fmt(e.output_tokens)}</span> <span class="f-cache">cache:${fmt(cache)}</span>`;
+}
+
+// ─── 异常检测 ─────────────────────────────────────────────────────────
+function detectAnomaly(name, newEvents) {
+  const p = state.projects[name];
+  if (!p || p.summary.message_count < 5) return [];
+  const avgIn = p.summary.total_input / p.summary.message_count;
+  const avgOut = p.summary.total_output / p.summary.message_count;
+  const anomalies = [];
+  for (const e of newEvents) {
+    const rIn = avgIn > 0 ? e.input_tokens / avgIn : 0;
+    const rOut = avgOut > 0 ? e.output_tokens / avgOut : 0;
+    const max = Math.max(rIn, rOut);
+    if (max >= 5) anomalies.push({ event: e, ratio: max, field: rIn > rOut ? 'input' : 'output' });
+  }
+  return anomalies;
+}
+
+// ─── 面板 CRUD ────────────────────────────────────────────────────────
+function createPanel(name, data) {
+  const id = safeId(name);
+  const pid = panelCounter++;
+  const lastSession = data.events.length > 0 ? data.events[data.events.length - 1].session_id : '';
+  const ip = fakeIP(lastSession);
+  const st = getStatus(data.summary);
+  const al = getModelInfo(data.events);
+  const rate = calcRate(data.events);
+  const firstTs = data.events.length > 0 ? new Date(data.events[0].timestamp).getTime() : Date.now();
+
+  state.projects[name] = {
+    events: data.events,
+    summary: { ...data.summary },
+    firstTime: firstTs,
+    panelId: id,
+  };
+
+  const recentEvents = data.events.slice(-10);
+  const feedHTML = recentEvents.map(e =>
+    `<div class="feed-line">${formatEvent(e)}</div>`
+  ).join('');
+
+  const html = `
+  <div class="panel" id="${id}" style="position:relative">
+    <div class="panel-header">
+      <div class="window-dots"><i class="dot-r"></i><i class="dot-y"></i><i class="dot-g"></i></div>
+      <div class="target-label">TARGET: <b>${name}</b></div>
+      <div class="target-ip">${ip}</div>
+      <div class="status-badge ${st.cls}" id="${id}_status">${st.text}</div>
+      <div class="panel-uptime" id="${id}_uptime">00:00:00</div>
+    </div>
+    <div class="panel-body">
+      <div class="scan-section">
+        <div class="scan-label">THROUGHPUT</div>
+        <div class="scan-bar-wrap">
+          <span class="scan-bar-text" id="${id}_bar">${rateBar(rate)}</span>
+          <span class="scan-pct" id="${id}_rate">${fmt(rate)}/m</span>
+        </div>
+        <div class="scan-detail" id="${id}_scanDetail">total output: ${fmt(data.summary.total_output)}</div>
+      </div>
+      <div class="access-section">
+        <span class="access-label">MODEL:</span>
+        <span class="access-bar ${al.cls}" id="${id}_alBar">${al.bar}</span>
+        <span class="access-level-text ${al.cls}" id="${id}_alText">${al.text}</span>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-label">消息数</div><div class="metric-value mv-msgs" id="${id}_msgs">${data.summary.message_count}</div></div>
+        <div class="metric"><div class="metric-label">输出 tokens</div><div class="metric-value mv-exfil" id="${id}_exfil">${fmt(data.summary.total_output)}</div></div>
+        <div class="metric"><div class="metric-label">输入 tokens</div><div class="metric-value mv-payload" id="${id}_payload">${fmt(data.summary.total_input)}</div></div>
+        <div class="metric"><div class="metric-label">缓存命中</div><div class="metric-value mv-cache" id="${id}_cache">${fmt(data.summary.total_cache_read)}</div></div>
+      </div>
+      <div class="feed-section">
+        <div class="feed-label">PORT SCAN — EVENT STREAM</div>
+        <div class="feed" id="${id}_feed">${feedHTML}</div>
+      </div>
+    </div>
+  </div>`;
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('targets').insertAdjacentHTML('beforeend', html);
+}
+
+function updatePanel(name) {
+  const p = state.projects[name];
+  if (!p) return;
+  const id = p.panelId;
+  const s = p.summary;
+
+  // 状态
+  const st = getStatus(s);
+  const stEl = document.getElementById(`${id}_status`);
+  if (stEl) { stEl.textContent = st.text; stEl.className = `status-badge ${st.cls}`; }
+
+  // 速率
+  const rate = calcRate(p.events);
+  const barEl = document.getElementById(`${id}_bar`);
+  const rateEl = document.getElementById(`${id}_rate`);
+  const detailEl = document.getElementById(`${id}_scanDetail`);
+  if (barEl) barEl.textContent = rateBar(rate);
+  if (rateEl) rateEl.textContent = fmt(rate) + '/m';
+  if (detailEl) detailEl.textContent = `total output: ${fmt(s.total_output)}`;
+
+  // 权限
+  const al = getModelInfo(p.events);
+  const alBar = document.getElementById(`${id}_alBar`);
+  const alText = document.getElementById(`${id}_alText`);
+  if (alBar) { alBar.textContent = al.bar; alBar.className = `access-bar ${al.cls}`; }
+  if (alText) { alText.textContent = al.text; alText.className = `access-level-text ${al.cls}`; }
+
+  // 指标
+  const set = (suffix, val) => { const el = document.getElementById(`${id}_${suffix}`); if (el) el.textContent = val; };
+  set('msgs', s.message_count);
+  set('exfil', fmt(s.total_output));
+  set('payload', fmt(s.total_input));
+  set('cache', fmt(s.total_cache_read));
+}
+
+function addFeedLines(name, events, anomalyMap) {
+  const p = state.projects[name];
+  if (!p) return;
+  const feed = document.getElementById(`${p.panelId}_feed`);
+  if (!feed) return;
+
+  // 移除旧的高亮
+  feed.querySelectorAll('.recent').forEach(el => el.classList.remove('recent'));
+
+  for (const e of events) {
+    const line = document.createElement('div');
+    const anomaly = anomalyMap && anomalyMap.get(e);
+    if (anomaly) {
+      line.className = 'feed-line alert-line';
+      line.innerHTML = formatEvent(e) + ` <span class="f-surge">[${anomaly.field} ${Math.round(anomaly.ratio)}x]</span>`;
+    } else {
+      line.className = 'feed-line recent';
+      line.innerHTML = formatEvent(e);
+      setTimeout(() => line.classList.remove('recent'), 2000);
+    }
+    feed.appendChild(line);
+  }
+
+  // 限制 feed 行数
+  while (feed.children.length > 10) feed.removeChild(feed.firstChild);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function flashPanel(name, type) {
+  const p = state.projects[name];
+  if (!p) return;
+  const el = document.getElementById(p.panelId);
+  if (!el) return;
+  el.classList.remove('flash-green', 'flash-red');
+  void el.offsetWidth;
+  el.classList.add(type === 'red' ? 'flash-red' : 'flash-green');
+  setTimeout(() => el.classList.remove('flash-green', 'flash-red'), 1500);
+}
+
+function triggerAnomaly(name, anomalies) {
+  flashPanel(name, 'red');
+
+  // 全局警告
+  const best = anomalies.reduce((a, b) => a.ratio > b.ratio ? a : b);
+  const toast = document.createElement('div');
+  toast.className = 'alert-toast';
+  toast.textContent = `[!] ${name}: ${best.field} surge ${Math.round(best.ratio)}x`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+function disconnectPanel(name) {
+  const p = state.projects[name];
+  if (!p) return;
+  const el = document.getElementById(p.panelId);
+  if (el) {
+    // 覆盖断连提示
+    const overlay = document.createElement('div');
+    overlay.className = 'disconnect-overlay';
+    overlay.textContent = '[!] CONNECTION LOST...';
+    el.appendChild(overlay);
+    // 淡出
+    setTimeout(() => {
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 1500);
+    }, 1500);
+  }
+  delete state.projects[name];
+  updateGlobalBar();
+
+  // 全空时显示空状态
+  if (Object.keys(state.projects).length === 0) {
+    document.getElementById('emptyState').style.display = '';
+  }
+}
+
+// ─── 全局状态栏 ────────────────────────────────────────────────────────
+function updateGlobalBar() {
+  const projects = Object.values(state.projects);
+  document.getElementById('gTargets').textContent = projects.length;
+  const totalExfil = projects.reduce((sum, p) => sum + p.summary.total_output, 0);
+  document.getElementById('gExfil').textContent = fmt(totalExfil);
+}
+
+function updateTimers() {
+  // 全局 uptime
+  document.getElementById('gUptime').textContent = fmtDuration(Date.now() - startTime);
+  // 每个面板的 uptime
+  for (const [name, p] of Object.entries(state.projects)) {
+    const el = document.getElementById(`${p.panelId}_uptime`);
+    if (el) el.textContent = fmtDuration(Date.now() - p.firstTime);
+  }
+}
+
+// ─── 初始化 + 轮询 ────────────────────────────────────────────────────
+async function init() {
   const data = await fetch('/api/live/multi/init').then(r => r.json());
   const names = Object.keys(data);
-  const count = names.length;
 
-  // 布局：均匀分布在画面中
-  const centerX = W / 2;
-  const centerY = H / 2;
-  const layoutRadius = Math.min(W, H) * 0.28;
+  if (names.length === 0) {
+    document.getElementById('emptyState').style.display = '';
+    return;
+  }
 
-  names.forEach((name, i) => {
-    const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-    const cx = centerX + Math.cos(angle) * layoutRadius;
-    const cy = centerY + Math.sin(angle) * layoutRadius;
-    const color = COLORS[i % COLORS.length];
-
-    const neb = new Nebula(name, color, cx, cy);
-    const gd = data[name];
-    neb.events = gd.events || [];
-    neb.summary = gd.summary;
-    neb.updateRadius();
-    neb.currentRadius = neb.targetRadius;
-
-    // 根据已有数据量调整初始粒子
-    const extraParticles = Math.min(Math.floor(neb.totalTokens / 5000), 80);
-    for (let j = 0; j < extraParticles; j++) {
-      neb.particles.push(new Particle(cx, cy, color, false));
-    }
-
-    nebulae.push(neb);
-  });
+  for (const name of names) {
+    createPanel(name, data[name]);
+  }
+  updateGlobalBar();
 }
 
 async function poll() {
   try {
     const data = await fetch('/api/live/multi/poll').then(r => r.json());
+
+    // 闲置下线
+    const idle = data._idle;
+    if (idle) {
+      for (const name of idle) disconnectPanel(name);
+      delete data._idle;
+    }
+
     for (const [name, val] of Object.entries(data)) {
-      const neb = nebulae.find(n => n.name === name);
-      if (!neb) continue;
+      // 新项目上线
+      if (val.is_new) {
+        createPanel(name, val);
+        flashPanel(name, 'green');
+        continue;
+      }
+
+      const p = state.projects[name];
+      if (!p) continue;
       const newEvents = val.events || [];
       if (newEvents.length === 0) continue;
 
-      neb.events.push(...newEvents);
+      // 异常检测
+      const anomalies = detectAnomaly(name, newEvents);
+
+      // 更新数据
+      p.events.push(...newEvents);
+      if (p.events.length > 200) p.events.splice(0, p.events.length - 200);
       for (const e of newEvents) {
-        neb.summary.total_input += e.input_tokens;
-        neb.summary.total_output += e.output_tokens;
-        neb.summary.total_cache_read += e.cache_read;
-        neb.summary.total_cache_creation += e.cache_creation;
-        neb.summary.message_count += 1;
+        p.summary.total_input += e.input_tokens;
+        p.summary.total_output += e.output_tokens;
+        p.summary.total_cache_read += e.cache_read;
+        p.summary.total_cache_creation += e.cache_creation;
+        p.summary.message_count += 1;
       }
-      neb.burst(newEvents.length);
+
+      updatePanel(name);
+
+      // 构建异常映射：event → anomaly info
+      const anomalyMap = new Map();
+      for (const a of anomalies) anomalyMap.set(a.event, a);
+
+      addFeedLines(name, newEvents, anomalyMap);
+      flashPanel(name, anomalies.length > 0 ? 'red' : 'green');
+
+      if (anomalies.length > 0) triggerAnomaly(name, anomalies);
     }
+
+    updateGlobalBar();
   } catch (err) {
-    console.error('poll error:', err);
+    console.error('poll:', err);
   }
 }
 
-// ─── 交互 ─────────────────────────────────────────────────────────────
-canvas.addEventListener('mousemove', (e) => {
-  hoveredNebula = null;
-  for (const neb of nebulae) {
-    if (neb.hitTest(e.clientX, e.clientY)) {
-      hoveredNebula = neb;
-      canvas.style.cursor = 'pointer';
-      return;
-    }
-  }
-  canvas.style.cursor = 'default';
-});
-
-canvas.addEventListener('click', (e) => {
-  for (const neb of nebulae) {
-    if (neb.hitTest(e.clientX, e.clientY)) {
-      showDetail(neb);
-      return;
-    }
-  }
-});
-
-function showDetail(neb) {
-  const overlay = document.getElementById('detailOverlay');
-  document.getElementById('detailName').style.color = neb.color.core;
-  document.getElementById('detailName').textContent = neb.name;
-
-  const s = neb.summary;
-  document.getElementById('detailStats').innerHTML = `
-    <div class="ds"><div class="ds-label">输入</div><div class="ds-value v-in">${fmt(s.total_input)}</div></div>
-    <div class="ds"><div class="ds-label">输出</div><div class="ds-value v-out">${fmt(s.total_output)}</div></div>
-    <div class="ds"><div class="ds-label">缓存读取</div><div class="ds-value v-cache">${fmt(s.total_cache_read)}</div></div>
-    <div class="ds"><div class="ds-label">缓存创建</div><div class="ds-value" style="color:#a78bfa">${fmt(s.total_cache_creation)}</div></div>
-  `;
-
-  const reversed = [...neb.events].reverse().slice(0, 80);
-  document.getElementById('detailFeed').innerHTML = reversed.length === 0
-    ? '<div style="padding:20px;text-align:center;color:#444">最近 24h 无消息</div>'
-    : reversed.map(e => {
-        const cache = e.cache_read + e.cache_creation;
-        return `
-          <div class="df-row">
-            <div class="df-time">${timeStr(e.timestamp)}</div>
-            <div>${modelTag(e.model)}</div>
-            <div class="v-in">${fmt(e.input_tokens)}</div>
-            <div class="v-out">${fmt(e.output_tokens)}</div>
-            <div class="v-cache">${fmt(cache)}</div>
-            <div style="color:#333;font-size:10px">${e.session_id.slice(0,8)}</div>
-          </div>
-        `;
-      }).join('');
-
-  overlay.classList.add('active');
-}
-
-function closeDetail() {
-  document.getElementById('detailOverlay').classList.remove('active');
-}
-
-// ─── 渲染循环 ─────────────────────────────────────────────────────────
-let frame = 0;
-function render() {
-  frame++;
-  ctx.clearRect(0, 0, W, H);
-
-  // 背景
-  ctx.fillStyle = '#0a0a12';
-  ctx.fillRect(0, 0, W, H);
-
-  drawStars(frame);
-
-  // 连线（微弱）
-  for (let i = 0; i < nebulae.length; i++) {
-    for (let j = i + 1; j < nebulae.length; j++) {
-      const a = nebulae[i], b = nebulae[j];
-      ctx.beginPath();
-      ctx.moveTo(a.cx, a.cy);
-      ctx.lineTo(b.cx, b.cy);
-      ctx.strokeStyle = 'rgba(255,255,255,0.015)';
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
-    }
-  }
-
-  for (const neb of nebulae) {
-    neb.update(frame);
-    neb.draw(frame);
-  }
-
-  // hover 高亮
-  if (hoveredNebula) {
-    const r = hoveredNebula.currentRadius * 2.5;
-    const grad = ctx.createRadialGradient(hoveredNebula.cx, hoveredNebula.cy, 0, hoveredNebula.cx, hoveredNebula.cy, r);
-    grad.addColorStop(0, hoveredNebula.color.glow + '0.08)');
-    grad.addColorStop(1, 'transparent');
-    ctx.beginPath();
-    ctx.arc(hoveredNebula.cx, hoveredNebula.cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-  }
-
-  requestAnimationFrame(render);
-}
-
-// ─── 启动 ─────────────────────────────────────────────────────────────
-initData().then(() => {
-  render();
+init().then(() => {
   setInterval(poll, 3000);
+  setInterval(updateTimers, 1000);
 });
 </script>
 </body>

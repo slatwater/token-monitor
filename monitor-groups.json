@@ -1,17 +1,5 @@
 {
-  "ChemAgent": [
-    "-Users-sevenstars-Projects-chemagents-pro-packages-server"
-  ],
-  "Trinity": [
-    "-Users-sevenstars--trinity-agent-chat",
-    "-Users-sevenstars-Projects-Trinity",
-    "-Users-sevenstars-Projects-Trinity-backend",
-    "-Users-sevenstars-Projects-rag-learning",
-    "-Users-sevenstars-rag-learning",
-    "-Users-sevenstars-Projects-DevDash",
-    "-Users-severstars-Projects-DevDash"
-  ],
-  "ai-digest": [
-    "-Users-sevenstars-Projects-ai-digest"
+  "exclude": [
+    "Codex-workspace"
   ]
 }
