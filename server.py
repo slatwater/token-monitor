@@ -71,11 +71,13 @@ def parse_project_name(dir_name: str) -> str:
 
 # 记录每个文件上次读到的位置
 _file_cursors: dict[str, int] = {}
-# 当前正在监控的活跃项目 {显示名: [目录名列表]}
-_active_projects: dict[str, list[str]] = {}
-
+# 所有已知项目 {显示名: [目录名列表]}（含活跃 + 闲置）
+_known_projects: dict[str, list[str]] = {}
+# 项目闲置时间戳 {显示名: timestamp}
+_idle_since: dict[str, float] = {}
 
 ACTIVE_MINUTES = 5  # JSONL 文件在此时间内被修改 → 项目正在消耗 token
+IDLE_REMOVE_MINUTES = 30  # 闲置超过此时间 → 真正移除面板
 
 
 def discover_active_projects(minutes: int = ACTIVE_MINUTES) -> dict[str, list[str]]:
@@ -318,10 +320,11 @@ async def live_report(request: Request):
 @app.get("/api/live/multi/init")
 def live_multi_init():
     """初始化 — 只返回正在消耗 token 的项目（含外部上报）"""
-    global _active_projects
-    _active_projects = discover_active_projects()
+    global _known_projects, _idle_since
+    _known_projects = discover_active_projects()
+    _idle_since = {}
     result = {}
-    for name, dir_names in _active_projects.items():
+    for name, dir_names in _known_projects.items():
         events = _collect_events_for_dirs(dir_names, set_cursor=True)
         result[name] = {"events": events, "summary": _make_summary(events)}
 
@@ -337,12 +340,14 @@ def live_multi_init():
 
 @app.get("/api/live/multi/poll")
 def live_multi_poll():
-    """轮询：推送新事件 + 发现新项目 + 通知已闲置项目"""
-    global _active_projects
+    """轮询：推送新事件 + 发现新项目 + 闲置/恢复状态管理"""
+    global _known_projects
     result = {}
 
-    # 轮询已知项目的新事件
-    for name, dir_names in list(_active_projects.items()):
+    # 轮询活跃（非闲置）项目的新事件
+    for name, dir_names in list(_known_projects.items()):
+        if name in _idle_since:
+            continue
         events = _poll_events_for_dirs(dir_names)
         if events:
             result[name] = {"events": events}
@@ -350,10 +355,22 @@ def live_multi_poll():
     # 重新扫描当前活跃项目
     current = discover_active_projects()
 
-    # 新项目上线
+    # 闲置项目恢复
+    for name in list(_idle_since.keys()):
+        if name in current:
+            del _idle_since[name]
+            _known_projects[name] = current[name]
+            events = _poll_events_for_dirs(current[name])
+            if name in result:
+                result[name].setdefault("events", []).extend(events)
+            else:
+                result[name] = {"events": events}
+            result[name]["resumed"] = True
+
+    # 全新项目上线
     for name, dir_names in current.items():
-        if name not in _active_projects:
-            _active_projects[name] = dir_names
+        if name not in _known_projects:
+            _known_projects[name] = dir_names
             events = _collect_events_for_dirs(dir_names, set_cursor=True)
             result[name] = {
                 "events": events,
@@ -361,25 +378,36 @@ def live_multi_poll():
                 "is_new": True,
             }
 
-    # 项目闲置（不再有活跃的 JSONL 写入）
-    idle = [name for name in _active_projects if name not in current]
-    for name in idle:
-        del _active_projects[name]
-    if idle:
-        result["_idle"] = idle
+    # 新闲置的项目（活跃→闲置）
+    now = datetime.now().timestamp()
+    newly_idle = []
+    for name in _known_projects:
+        if name not in current and name not in _idle_since:
+            _idle_since[name] = now
+            newly_idle.append(name)
+    if newly_idle:
+        result["_idle"] = newly_idle
+
+    # 长时间闲置 → 真正移除
+    remove = []
+    for name, since in list(_idle_since.items()):
+        if now - since > IDLE_REMOVE_MINUTES * 60:
+            remove.append(name)
+            del _idle_since[name]
+            del _known_projects[name]
+    if remove:
+        result["_remove"] = remove
 
     # 外部上报的新事件
     for name, events in list(_external_events.items()):
         if not events:
             continue
         if name in result:
-            # 已有该项目（来自 JSONL 或新发现），追加事件
             result[name].setdefault("events", []).extend(events)
         else:
-            # 纯外部项目，首次出现时带 summary
             summary = _external_summaries.get(name, _make_summary(events))
             result[name] = {"events": events, "summary": {**summary}, "is_new": True}
-        _external_events[name] = []  # 取走后清空
+        _external_events[name] = []
 
     return result
 

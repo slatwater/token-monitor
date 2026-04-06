@@ -66,6 +66,8 @@ body::after {
 .status-connected { color: #00ff41; }
 .status-scanning { color: #ffaa00; }
 .status-breached { color: #ff0040; }
+.status-idle { color: #555; }
+.panel.idle { opacity: 0.35; transition: opacity 0.5s; }
 .panel-uptime { font-size: 10px; color: #333; font-variant-numeric: tabular-nums; }
 
 /* 面板体 */
@@ -78,8 +80,11 @@ body::after {
   background: #0a0a0a; border: 1px solid #1a2a1a; padding: 3px 6px;
   font-size: 12px; letter-spacing: 1px; display: flex; align-items: center; gap: 8px;
 }
-.scan-bar-text { color: #00ff41; white-space: pre; }
-.scan-pct { color: #00ff41; font-weight: 700; min-width: 36px; text-align: right; }
+.scan-bar-text { white-space: pre; }
+.scan-pct { font-weight: 700; min-width: 48px; text-align: right; }
+.pressure-low { color: #00ff41; }
+.pressure-mid { color: #ffaa00; text-shadow: 0 0 4px rgba(255,170,0,0.3); }
+.pressure-high { color: #ff0040; text-shadow: 0 0 6px rgba(255,0,64,0.4); }
 .scan-detail { font-size: 10px; color: #333; margin-top: 3px; }
 
 /* 权限等级 */
@@ -232,23 +237,31 @@ function getModelInfo(events) {
   return { bar: '░░░░░', text: 'none', cls: 'level-user' };
 }
 
-function calcRate(events) {
-  if (events.length < 2) return 0;
-  const recent = events.slice(-20);
-  const first = new Date(recent[0].timestamp).getTime();
-  const last = new Date(recent[recent.length - 1].timestamp).getTime();
-  const minutes = (last - first) / 60000;
-  if (minutes < 0.1) return 0;
-  const totalOut = recent.reduce((s, e) => s + e.output_tokens, 0);
-  return Math.round(totalOut / minutes);
+const CTX_WINDOW = 1_000_000;
+
+function calcContextPressure(events) {
+  // 每个 session 取最新一条，算各自的上下文大小，返回峰值
+  const latest = {};
+  for (const e of events) latest[e.session_id] = e;
+  let maxCtx = 0;
+  for (const e of Object.values(latest)) {
+    const ctx = e.input_tokens + e.cache_read + e.cache_creation;
+    if (ctx > maxCtx) maxCtx = ctx;
+  }
+  const sessions = Object.keys(latest).length;
+  return { tokens: maxCtx, pct: maxCtx / CTX_WINDOW, sessions };
 }
 
-function rateBar(rate, w) {
+function pressureBar(pct, w) {
   w = w || 30;
-  // 0-50K tok/min 映射到满格
-  const pct = Math.min(1, rate / 50000);
-  const filled = Math.round(pct * w);
+  const filled = Math.round(Math.min(1, pct) * w);
   return '\u2588'.repeat(filled) + '\u2591'.repeat(w - filled);
+}
+
+function pressureCls(pct) {
+  if (pct > 0.7) return 'pressure-high';
+  if (pct > 0.3) return 'pressure-mid';
+  return 'pressure-low';
 }
 
 function fakePort(sessionId) {
@@ -260,7 +273,7 @@ function formatEvent(e) {
   const port = fakePort(e.session_id);
   const model = shortModel(e.model);
   const cache = e.cache_read + e.cache_creation;
-  return `<span class="f-time">[${t}]</span> <span class="f-port">PORT ${port}/${model}</span> <span class="f-status">OPEN</span> — <span class="f-in">in:${fmt(e.input_tokens)}</span> <span class="f-out">out:${fmt(e.output_tokens)}</span> <span class="f-cache">cache:${fmt(cache)}</span>`;
+  return `<span class="f-time">[${t}]</span> <span class="f-port">PORT ${port}/${model}</span> <span class="f-in">in:${fmt(e.input_tokens)}</span> <span class="f-out">out:${fmt(e.output_tokens)}</span> <span class="f-cache">cache:${fmt(cache)}</span>`;
 }
 
 // ─── 异常检测 ─────────────────────────────────────────────────────────
@@ -282,12 +295,18 @@ function detectAnomaly(name, newEvents) {
 // ─── 面板 CRUD ────────────────────────────────────────────────────────
 function createPanel(name, data) {
   const id = safeId(name);
+  // 防重复：同名面板已存在时先销毁旧的
+  if (state.projects[name]) {
+    const oldEl = document.getElementById(state.projects[name].panelId);
+    if (oldEl) oldEl.remove();
+    delete state.projects[name];
+  }
   const pid = panelCounter++;
   const lastSession = data.events.length > 0 ? data.events[data.events.length - 1].session_id : '';
   const ip = fakeIP(lastSession);
   const st = getStatus(data.summary);
   const al = getModelInfo(data.events);
-  const rate = calcRate(data.events);
+  const cp = calcContextPressure(data.events);
   const firstTs = data.events.length > 0 ? new Date(data.events[0].timestamp).getTime() : Date.now();
 
   state.projects[name] = {
@@ -313,12 +332,12 @@ function createPanel(name, data) {
     </div>
     <div class="panel-body">
       <div class="scan-section">
-        <div class="scan-label">THROUGHPUT</div>
+        <div class="scan-label">CONTEXT PRESSURE</div>
         <div class="scan-bar-wrap">
-          <span class="scan-bar-text" id="${id}_bar">${rateBar(rate)}</span>
-          <span class="scan-pct" id="${id}_rate">${fmt(rate)}/m</span>
+          <span class="scan-bar-text ${pressureCls(cp.pct)}" id="${id}_bar">${pressureBar(cp.pct)}</span>
+          <span class="scan-pct ${pressureCls(cp.pct)}" id="${id}_pct">${(cp.pct * 100).toFixed(1)}%</span>
         </div>
-        <div class="scan-detail" id="${id}_scanDetail">total output: ${fmt(data.summary.total_output)}</div>
+        <div class="scan-detail" id="${id}_scanDetail">${fmt(cp.tokens)} / 1M · peak of ${cp.sessions} session${cp.sessions > 1 ? 's' : ''}</div>
       </div>
       <div class="access-section">
         <span class="access-label">MODEL:</span>
@@ -353,14 +372,15 @@ function updatePanel(name) {
   const stEl = document.getElementById(`${id}_status`);
   if (stEl) { stEl.textContent = st.text; stEl.className = `status-badge ${st.cls}`; }
 
-  // 速率
-  const rate = calcRate(p.events);
+  // 上下文压力
+  const cp = calcContextPressure(p.events);
+  const cls = pressureCls(cp.pct);
   const barEl = document.getElementById(`${id}_bar`);
-  const rateEl = document.getElementById(`${id}_rate`);
+  const pctEl = document.getElementById(`${id}_pct`);
   const detailEl = document.getElementById(`${id}_scanDetail`);
-  if (barEl) barEl.textContent = rateBar(rate);
-  if (rateEl) rateEl.textContent = fmt(rate) + '/m';
-  if (detailEl) detailEl.textContent = `total output: ${fmt(s.total_output)}`;
+  if (barEl) { barEl.textContent = pressureBar(cp.pct); barEl.className = `scan-bar-text ${cls}`; }
+  if (pctEl) { pctEl.textContent = (cp.pct * 100).toFixed(1) + '%'; pctEl.className = `scan-pct ${cls}`; }
+  if (detailEl) detailEl.textContent = `${fmt(cp.tokens)} / 1M · peak of ${cp.sessions} session${cp.sessions > 1 ? 's' : ''}`;
 
   // 权限
   const al = getModelInfo(p.events);
@@ -453,6 +473,25 @@ function disconnectPanel(name) {
   }
 }
 
+function idlePanel(name) {
+  const p = state.projects[name];
+  if (!p) return;
+  p.idle = true;
+  const el = document.getElementById(p.panelId);
+  if (el) el.classList.add('idle');
+  const stEl = document.getElementById(`${p.panelId}_status`);
+  if (stEl) { stEl.textContent = 'IDLE'; stEl.className = 'status-badge status-idle'; }
+}
+
+function resumePanel(name) {
+  const p = state.projects[name];
+  if (!p) return;
+  p.idle = false;
+  const el = document.getElementById(p.panelId);
+  if (el) el.classList.remove('idle');
+  flashPanel(name, 'green');
+}
+
 // ─── 全局状态栏 ────────────────────────────────────────────────────────
 function updateGlobalBar() {
   const projects = Object.values(state.projects);
@@ -491,11 +530,18 @@ async function poll() {
   try {
     const data = await fetch('/api/live/multi/poll').then(r => r.json());
 
-    // 闲置下线
+    // 闲置（变灰保留）
     const idle = data._idle;
     if (idle) {
-      for (const name of idle) disconnectPanel(name);
+      for (const name of idle) idlePanel(name);
       delete data._idle;
+    }
+
+    // 长时间闲置 → 真正移除
+    const remove = data._remove;
+    if (remove) {
+      for (const name of remove) disconnectPanel(name);
+      delete data._remove;
     }
 
     for (const [name, val] of Object.entries(data)) {
@@ -505,6 +551,9 @@ async function poll() {
         flashPanel(name, 'green');
         continue;
       }
+
+      // 闲置项目恢复
+      if (val.resumed) resumePanel(name);
 
       const p = state.projects[name];
       if (!p) continue;

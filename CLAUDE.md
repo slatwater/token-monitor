@@ -5,7 +5,7 @@
 ## 技术栈
 
 - Python 3.12 + FastAPI + uvicorn
-- 前端: 单页 HTML + Canvas 粒子动画
+- 前端: 单页 HTML（黑客终端风格）
 - 数据源: `~/.claude/projects/**/*.jsonl`
 
 ## 命令
